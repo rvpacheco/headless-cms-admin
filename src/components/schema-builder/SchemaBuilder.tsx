@@ -9,6 +9,8 @@ import {
   type DraftSchema,
   type SchemaErrors,
 } from '@/lib/domain/schema-validation';
+import { useSchemaFreshness } from '@/components/realtime/useSchemaFreshness';
+import { StaleSchemaBanner } from '@/components/realtime/StaleSchemaBanner';
 import { FieldRow, type SchemaOption } from './FieldRow';
 
 interface SchemaBuilderProps {
@@ -26,6 +28,9 @@ interface SchemaBuilderProps {
   submitLabel: string;
   /** Where "Cancel" goes back to. */
   cancelHref: string;
+  /** Edit mode only: the schema being edited, for the stale-schema banner. */
+  schemaId?: string;
+  version?: number;
 }
 
 const EMPTY_ERRORS: SchemaErrors = { fields: {} };
@@ -52,15 +57,30 @@ export function SchemaBuilder({
   takenNamesLower,
   submitLabel,
   cancelHref,
+  schemaId,
+  version = 0,
 }: SchemaBuilderProps) {
   const [state, dispatch, isPending] = useActionState(action, null);
   const [name, setName] = useState(initialName);
   const [fields, setFields] = useState<DraftField[]>(initialFields);
   // Client-side errors (instant feedback). Server errors arrive via `state`.
   const [clientErrors, setClientErrors] = useState<SchemaErrors | null>(null);
+  // Snapshot the loaded version so the stale banner can compare against it.
+  // Empty schemaId (create mode) never matches an event, so this stays inert.
+  const [loadedVersion, setLoadedVersion] = useState(version);
+
+  const freshness = useSchemaFreshness(schemaId ?? '', loadedVersion, version);
 
   const errors = clientErrors ?? state?.errors ?? EMPTY_ERRORS;
   const knownSchemaIds = availableTargets.map((s) => s.id);
+
+  // Adopt the latest server data, discarding unsaved edits (user-initiated).
+  function reloadFromLatest() {
+    setName(initialName);
+    setFields(initialFields);
+    setClientErrors(null);
+    setLoadedVersion(version);
+  }
 
   function updateField(rowId: string, patch: Partial<DraftField>) {
     setFields((current) =>
@@ -108,6 +128,16 @@ export function SchemaBuilder({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-8">
+      {schemaId && (freshness.stale || freshness.deleted) && (
+        <StaleSchemaBanner
+          deleted={freshness.deleted}
+          loadedVersion={loadedVersion}
+          latestVersion={freshness.latestVersion}
+          onReload={reloadFromLatest}
+          backHref={cancelHref}
+        />
+      )}
+
       {/* Schema name */}
       <div>
         <label

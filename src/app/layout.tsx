@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { SidebarNav } from "@/components/app-shell/SidebarNav";
+import { RealtimeProvider } from "@/components/realtime/RealtimeProvider";
 import { listSchemas } from "@/lib/db/schemas";
 
 const geistSans = Geist({
@@ -34,12 +35,14 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full">
-        <div className="flex min-h-screen">
-          <aside className="w-64 shrink-0 border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
-            <SidebarNav schemas={schemas} />
-          </aside>
-          <main className="flex-1 bg-zinc-50 dark:bg-zinc-950">{children}</main>
-        </div>
+        <RealtimeProvider>
+          <div className="flex min-h-screen">
+            <aside className="w-64 shrink-0 border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+              <SidebarNav schemas={schemas} />
+            </aside>
+            <main className="flex-1 bg-zinc-50 dark:bg-zinc-950">{children}</main>
+          </div>
+        </RealtimeProvider>
       </body>
     </html>
   );

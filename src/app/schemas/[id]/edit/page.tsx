@@ -59,6 +59,8 @@ export default async function EditSchemaPage({
         takenNamesLower={takenNamesLower}
         submitLabel="Save changes"
         cancelHref={`/schemas/${schema.id}`}
+        schemaId={schema.id}
+        version={schema.version}
       />
     </div>
   );

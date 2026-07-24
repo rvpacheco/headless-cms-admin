@@ -6,6 +6,8 @@ interface DeleteSchemaButtonProps {
   /** Bound Server Action that deletes this schema and redirects home. */
   action: () => Promise<void>;
   schemaName: string;
+  /** How many entries will be cascade-deleted along with the schema. */
+  entryCount: number;
 }
 
 /**
@@ -15,6 +17,7 @@ interface DeleteSchemaButtonProps {
 export function DeleteSchemaButton({
   action,
   schemaName,
+  entryCount,
 }: DeleteSchemaButtonProps) {
   const [confirming, setConfirming] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -35,6 +38,12 @@ export function DeleteSchemaButton({
     <div className="flex items-center gap-2 text-sm">
       <span className="text-zinc-600 dark:text-zinc-400">
         Delete “{schemaName}”?
+        {entryCount > 0 && (
+          <span className="ml-1 text-red-600">
+            This will also delete {entryCount}{' '}
+            {entryCount === 1 ? 'entry' : 'entries'}.
+          </span>
+        )}
       </span>
       <button
         type="button"

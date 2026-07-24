@@ -13,6 +13,7 @@ import {
   type DraftSchema,
   type SchemaErrors,
 } from '@/lib/domain/schema-validation';
+import { publish } from '@/lib/realtime/bus';
 
 // UI-driven mutations for schemas. These are the only writers of schema data,
 // and they re-validate on the server regardless of any client-side checks.
@@ -51,6 +52,7 @@ export async function saveSchemaAction(
   const fields = result.fields;
 
   let id: string;
+  let version: number;
   if (schemaId) {
     const updated = updateSchema(schemaId, { name, fields });
     if (!updated) {
@@ -58,18 +60,27 @@ export async function saveSchemaAction(
       return { errors: { fields: {}, name: 'This schema no longer exists.' } };
     }
     id = updated.id;
+    version = updated.version;
   } else {
-    id = createSchema({ name, fields }).id;
+    const created = createSchema({ name, fields });
+    id = created.id;
+    version = created.version;
   }
 
+  // Broadcast to connected clients before redirecting (redirect throws).
+  publish({ kind: 'schema.changed', schemaId: id, version });
   // Refresh every route under the root layout so the sidebar reflects the change.
   revalidatePath('/', 'layout');
   redirect(`/schemas/${id}`);
 }
 
-/** Delete a schema, then return to the landing page. */
+/** Delete a schema (and its entries), then return to the landing page. */
 export async function deleteSchemaAction(schemaId: string): Promise<void> {
-  deleteSchema(schemaId);
+  const deleted = deleteSchema(schemaId);
+  // Only broadcast if a schema was actually removed.
+  if (deleted) {
+    publish({ kind: 'schema.deleted', schemaId });
+  }
   revalidatePath('/', 'layout');
   redirect('/');
 }

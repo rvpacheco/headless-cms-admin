@@ -10,6 +10,8 @@ import {
 } from '@/lib/domain/entry-validation';
 import type { EntryData, Schema } from '@/lib/domain/types';
 import type { EntryOption } from '@/lib/entries/reference-labels';
+import { useSchemaFreshness } from '@/components/realtime/useSchemaFreshness';
+import { StaleSchemaBanner } from '@/components/realtime/StaleSchemaBanner';
 import { EntryFieldInput } from './EntryFieldInput';
 
 interface EntryFormProps {
@@ -54,16 +56,27 @@ export function EntryForm({
   cancelHref,
 }: EntryFormProps) {
   const [state, dispatch, isPending] = useActionState(action, null);
+  // Snapshot the schema + data at mount. The form renders from this snapshot so
+  // a background `router.refresh()` (triggered by real-time events) can't morph
+  // the field set under the user. `schema` (the live prop) is used only to
+  // detect drift and to reload from.
+  const [snapshot, setSnapshot] = useState({ schema, data: initialData });
   const [values, setValues] = useState(() =>
-    initialValues(schema, initialData),
+    initialValues(snapshot.schema, snapshot.data),
   );
   const [clientErrors, setClientErrors] = useState<EntryErrors | null>(null);
+
+  const freshness = useSchemaFreshness(
+    schema.id,
+    snapshot.schema.version,
+    schema.version,
+  );
 
   const errors = clientErrors ?? state?.errors ?? EMPTY_ERRORS;
 
   // Reference validity context, derived from the same options the pickers use.
   const validTargetIds: Record<string, string[]> = {};
-  for (const field of schema.fields) {
+  for (const field of snapshot.schema.fields) {
     if (field.type === 'reference') {
       validTargetIds[field.name] = (referenceOptions[field.name] ?? []).map(
         (option) => option.id,
@@ -75,9 +88,16 @@ export function EntryForm({
     setValues((current) => ({ ...current, [name]: value }));
   }
 
+  // Adopt the latest server data, discarding unsaved edits (user-initiated).
+  function reloadFromLatest() {
+    setSnapshot({ schema, data: initialData });
+    setValues(initialValues(schema, initialData));
+    setClientErrors(null);
+  }
+
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    const result = validateEntryData(schema, values, { validTargetIds });
+    const result = validateEntryData(snapshot.schema, values, { validTargetIds });
     if (!result.valid) {
       setClientErrors(result.errors);
       return;
@@ -90,13 +110,23 @@ export function EntryForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+      {(freshness.stale || freshness.deleted) && (
+        <StaleSchemaBanner
+          deleted={freshness.deleted}
+          loadedVersion={snapshot.schema.version}
+          latestVersion={freshness.latestVersion}
+          onReload={reloadFromLatest}
+          backHref={cancelHref}
+        />
+      )}
+
       {errors._form && (
         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/40">
           {errors._form}
         </p>
       )}
 
-      {schema.fields.length === 0 ? (
+      {snapshot.schema.fields.length === 0 ? (
         <div className="rounded-lg border border-dashed border-zinc-300 px-6 py-10 text-center dark:border-zinc-700">
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
             This schema has no fields yet, so there is nothing to fill in.
@@ -104,7 +134,7 @@ export function EntryForm({
         </div>
       ) : (
         <div className="flex flex-col gap-5">
-          {schema.fields.map((field) => (
+          {snapshot.schema.fields.map((field) => (
             <EntryFieldInput
               key={field.id}
               field={field}
@@ -121,7 +151,11 @@ export function EntryForm({
       <div className="flex items-center gap-3 border-t border-zinc-200 pt-6 dark:border-zinc-800">
         <button
           type="submit"
-          disabled={isPending || schema.fields.length === 0}
+          disabled={
+            isPending ||
+            snapshot.schema.fields.length === 0 ||
+            freshness.deleted
+          }
           className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
         >
           {isPending ? 'Saving…' : submitLabel}

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { db } from '@/lib/db';
+import { db, transaction } from '@/lib/db';
 import type { Field, Schema } from '@/lib/domain/types';
 
 // Repository for schemas. This is the single place raw rows are mapped to/from
@@ -108,7 +108,15 @@ export function updateSchema(
   return row ? rowToSchema(row) : null;
 }
 
+/**
+ * Delete a schema and all of its entries in one transaction. Entries are
+ * removed first so the `entries.schema_id` foreign key is never violated; if
+ * anything fails, the whole delete rolls back. Returns whether a schema existed.
+ */
 export function deleteSchema(id: string): boolean {
-  const result = db.prepare('DELETE FROM schemas WHERE id = ?').run(id);
-  return result.changes > 0;
+  return transaction(() => {
+    db.prepare('DELETE FROM entries WHERE schema_id = ?').run(id);
+    const result = db.prepare('DELETE FROM schemas WHERE id = ?').run(id);
+    return result.changes > 0;
+  });
 }

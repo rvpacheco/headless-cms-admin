@@ -56,3 +56,12 @@ function migrate(db: Database.Database): void {
 
 export const db: Database.Database =
   globalForDb.db ?? (globalForDb.db = createConnection());
+
+/**
+ * Run `fn` inside a single transaction: all statements commit together, or roll
+ * back together if `fn` throws. better-sqlite3 runs synchronously, so `fn` must
+ * be synchronous too.
+ */
+export function transaction<T>(fn: () => T): T {
+  return db.transaction(fn)();
+}

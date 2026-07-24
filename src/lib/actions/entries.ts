@@ -15,6 +15,7 @@ import {
   type EntryErrors,
   type RawEntryData,
 } from '@/lib/domain/entry-validation';
+import { publish } from '@/lib/realtime/bus';
 
 // UI-driven mutations for entries. These re-validate against the schema on the
 // server regardless of any client-side checks.
@@ -63,6 +64,7 @@ export async function saveEntryAction(
     return { errors: result.errors };
   }
 
+  let savedId: string;
   if (entryId) {
     const updated = updateEntry(entryId, {
       schemaVersion: schema.version,
@@ -71,14 +73,22 @@ export async function saveEntryAction(
     if (!updated) {
       return { errors: { _form: 'This entry no longer exists.' } };
     }
+    savedId = updated.id;
   } else {
-    createEntry({
+    savedId = createEntry({
       schemaId,
       schemaVersion: schema.version,
       data: result.data,
-    });
+    }).id;
   }
 
+  // Broadcast to connected clients before redirecting (redirect throws).
+  publish({
+    kind: 'entry.changed',
+    schemaId,
+    entryId: savedId,
+    schemaVersion: schema.version,
+  });
   revalidatePath(`/schemas/${schemaId}`);
   redirect(`/schemas/${schemaId}`);
 }
@@ -92,6 +102,7 @@ export async function deleteEntryAction(
   const entry = getEntry(entryId);
   if (entry && entry.schemaId === schemaId) {
     deleteEntry(entryId);
+    publish({ kind: 'entry.deleted', schemaId, entryId });
   }
   // NOTE: this does not clean up references pointing AT this entry — those
   // render as "Missing entry" in the UI. Cascade/referential-integrity cleanup

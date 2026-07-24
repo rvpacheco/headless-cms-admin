@@ -46,6 +46,7 @@ export default async function SchemaDetailPage({
           <DeleteSchemaButton
             action={deleteSchemaAction.bind(null, schema.id)}
             schemaName={schema.name}
+            entryCount={entries.length}
           />
         </div>
       </header>
