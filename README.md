@@ -76,15 +76,16 @@ src/
 
 ## Known limitations
 
-Deliberate scope choices, listed honestly:
+Scope choices I made on purpose, listed straight:
 
-- **Real-time is single-process.** The event bus is in-memory, which is correct for one local server. Multiple instances would need external pub/sub (Redis or similar) — out of scope for a zero-service build.
-- **Reference retyped to text** keeps the raw id as a text value rather than flagging it.
-- **A pure schema rename** doesn't re-stamp entries' `schemaVersion` (nothing structural changed; it's informational).
-- **The "changed since you reviewed" banner** doesn't clear until the next action after a re-analyze — recoverable, just visually sticky.
-- **Field names and values aren't hardened** — no length limits, no restriction on odd names, and numbers/dates accept loose formats without normalizing.
-- **Entry-level concurrent-edit banner** isn't built. The same mechanism as the schema one would extend to it; I stopped at the schema case the brief names.
+- Real-time is single-process. The event bus lives in memory, which is right for one local server. Multiple instances would need external pub/sub (Redis or similar), out of scope for a zero-service build.
+- A reference field retyped to text keeps the raw id as a text value instead of flagging it.
+- A pure schema rename doesn't re-stamp entries' schemaVersion. Nothing structural changed, so it's only informational.
+- The "changed since you reviewed" banner doesn't clear until the next action after a re-analyze. It's recoverable, just visually sticky.
+- Field names and values aren't hardened: no length limits, no restriction on odd names, and numbers and dates take loose formats without normalizing.
+- The entry-level concurrent-edit banner isn't built. The same mechanism as the schema one would cover it, I stopped at the schema case the brief names.
 
 ## How this was built
 
-I built this with Claude Code as my coding agent, which the challenge invites. My workflow: the agent reads an `AGENTS.md` and the local framework docs before writing, I plan each part before it codes, and I review every diff — I don't ship code I can't explain. A separate AI assistant helped me think through architecture and trade-offs along the way. The prompt exports are included as the AI session record. Where the agent produced something that compiled but was wrong — a race condition hidden in a clean-looking flow, a React 19 transition bug — I caught it and directed the fix. That review is where the engineering is.
+I built this with Claude Code, which the challenge invites. The workflow: the agent reads an AGENTS.md and the local framework docs before it writes anything, I plan each part before it codes, and I read every diff. I don't ship code I can't explain. A separate AI assistant helped me think through architecture and trade-offs along the way. The prompt exports are here as the AI session record.
+A couple of times the agent handed me code that compiled but was wrong: a race condition hidden in a clean-looking validation flow, and a React 19 transition bug that saved the data but broke the pending state. I caught both by testing and directed the fix. That review is the part that matters.
