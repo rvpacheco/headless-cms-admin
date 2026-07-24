@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import {
   createSchema,
   deleteSchema,
+  getSchema,
   listSchemas,
   updateSchema,
 } from '@/lib/db/schemas';
@@ -21,6 +22,12 @@ import { publish } from '@/lib/realtime/bus';
 /** State returned to the builder. `null` means "no attempt yet". */
 export type SchemaFormState = { errors: SchemaErrors } | null;
 
+export interface SaveSchemaPayload {
+  draft: DraftSchema;
+  /** The schema version the editor loaded (edit mode) — the concurrency guard. */
+  loadedVersion: number | null;
+}
+
 /**
  * Create or update a schema. `schemaId` is bound by the page (null = create).
  * Signature matches React's `useActionState`: (prevState, payload).
@@ -31,8 +38,28 @@ export type SchemaFormState = { errors: SchemaErrors } | null;
 export async function saveSchemaAction(
   schemaId: string | null,
   _prev: SchemaFormState,
-  draft: DraftSchema,
+  payload: SaveSchemaPayload,
 ): Promise<SchemaFormState> {
+  const { draft, loadedVersion } = payload;
+
+  // CONCURRENCY GUARD for schema edits — the same guarantee the evolution apply
+  // path has, so a schema edit can never silently overwrite a concurrent change,
+  // whether or not the schema has entries. (Create mode has no version to guard.)
+  if (schemaId && loadedVersion !== null) {
+    const current = getSchema(schemaId);
+    if (!current) {
+      return { errors: { fields: {}, form: 'This schema no longer exists.' } };
+    }
+    if (current.version !== loadedVersion) {
+      return {
+        errors: {
+          fields: {},
+          form: 'This schema changed in another tab. Reload before saving.',
+        },
+      };
+    }
+  }
+
   const existing = listSchemas();
 
   // Build validation context from the current data. On update, exclude the

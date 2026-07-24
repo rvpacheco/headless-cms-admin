@@ -79,10 +79,17 @@ export function EntryFieldInput({
           />
         );
 
-      case 'reference':
+      case 'reference': {
+        const currentId = String(value);
+        // A stored reference whose target entry no longer exists won't be in the
+        // options. Surface it as a visible "missing" option so the user can see
+        // the dangling value and change it, rather than a silently-blank select.
+        const isDangling =
+          currentId !== '' &&
+          !referenceOptions.some((option) => option.id === currentId);
         return (
           <select
-            value={String(value)}
+            value={currentId}
             disabled={disabled}
             aria-invalid={Boolean(error)}
             className={`${inputClass} max-w-sm`}
@@ -91,6 +98,11 @@ export function EntryFieldInput({
             <option value="">
               {field.required ? 'Select an entry…' : 'None'}
             </option>
+            {isDangling && (
+              <option value={currentId}>
+                ⚠ missing ({currentId.slice(0, 8)}…)
+              </option>
+            )}
             {referenceOptions.map((option) => (
               <option key={option.id} value={option.id}>
                 {option.label}
@@ -98,6 +110,7 @@ export function EntryFieldInput({
             ))}
           </select>
         );
+      }
     }
   }
 

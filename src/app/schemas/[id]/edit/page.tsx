@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { saveSchemaAction } from '@/lib/actions/schemas';
+import { analyzeSchemaChange, applySchemaChange } from '@/lib/actions/evolution';
 import { getSchema, listSchemas } from '@/lib/db/schemas';
 import type { DraftField } from '@/lib/domain/schema-validation';
 import { SchemaBuilder } from '@/components/schema-builder/SchemaBuilder';
@@ -61,6 +62,8 @@ export default async function EditSchemaPage({
         cancelHref={`/schemas/${schema.id}`}
         schemaId={schema.id}
         version={schema.version}
+        analyzeAction={analyzeSchemaChange.bind(null, schema.id)}
+        applyAction={applySchemaChange.bind(null, schema.id)}
       />
     </div>
   );

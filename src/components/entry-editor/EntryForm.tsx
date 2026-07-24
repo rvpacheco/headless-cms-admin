@@ -2,11 +2,10 @@
 
 import { startTransition, useActionState, useState } from 'react';
 import Link from 'next/link';
-import type { EntryFormState } from '@/lib/actions/entries';
+import type { EntryFormState, SaveEntryPayload } from '@/lib/actions/entries';
 import {
   validateEntryData,
   type EntryErrors,
-  type RawEntryData,
 } from '@/lib/domain/entry-validation';
 import type { EntryData, Schema } from '@/lib/domain/types';
 import type { EntryOption } from '@/lib/entries/reference-labels';
@@ -18,10 +17,12 @@ interface EntryFormProps {
   /** Bound Server Action: create (entryId=null) or update (entryId set). */
   action: (
     prev: EntryFormState,
-    raw: RawEntryData,
+    payload: SaveEntryPayload,
   ) => Promise<EntryFormState>;
   schema: Schema;
   initialData?: EntryData;
+  /** The entry's `updatedAt` at load (edit mode) — the optimistic-lock token. */
+  initialUpdatedAt?: string;
   /** Candidate target entries per reference field name. */
   referenceOptions: Record<string, EntryOption[]>;
   submitLabel: string;
@@ -51,16 +52,20 @@ export function EntryForm({
   action,
   schema,
   initialData,
+  initialUpdatedAt,
   referenceOptions,
   submitLabel,
   cancelHref,
 }: EntryFormProps) {
   const [state, dispatch, isPending] = useActionState(action, null);
-  // Snapshot the schema + data at mount. The form renders from this snapshot so
-  // a background `router.refresh()` (triggered by real-time events) can't morph
-  // the field set under the user. `schema` (the live prop) is used only to
-  // detect drift and to reload from.
-  const [snapshot, setSnapshot] = useState({ schema, data: initialData });
+  // Snapshot the schema + data + lock token at mount. The form renders from this
+  // snapshot so a background `router.refresh()` (triggered by real-time events)
+  // can't morph the field set — or the optimistic-lock token — under the user.
+  const [snapshot, setSnapshot] = useState({
+    schema,
+    data: initialData,
+    updatedAt: initialUpdatedAt ?? null,
+  });
   const [values, setValues] = useState(() =>
     initialValues(snapshot.schema, snapshot.data),
   );
@@ -90,7 +95,7 @@ export function EntryForm({
 
   // Adopt the latest server data, discarding unsaved edits (user-initiated).
   function reloadFromLatest() {
-    setSnapshot({ schema, data: initialData });
+    setSnapshot({ schema, data: initialData, updatedAt: initialUpdatedAt ?? null });
     setValues(initialValues(schema, initialData));
     setClientErrors(null);
   }
@@ -104,8 +109,10 @@ export function EntryForm({
     }
     setClientErrors(null);
     // Dispatch must run inside a transition so `isPending` updates (see the
-    // schema builder for the same pattern).
-    startTransition(() => dispatch(values));
+    // schema builder for the same pattern). Send the mount-time lock token.
+    startTransition(() =>
+      dispatch({ data: values, expectedUpdatedAt: snapshot.updatedAt }),
+    );
   }
 
   return (

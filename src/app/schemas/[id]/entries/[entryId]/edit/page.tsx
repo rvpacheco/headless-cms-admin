@@ -35,6 +35,7 @@ export default async function EditEntryPage({
         action={saveEntryAction.bind(null, schema.id, entry.id)}
         schema={schema}
         initialData={entry.data}
+        initialUpdatedAt={entry.updatedAt}
         referenceOptions={referenceOptions}
         submitLabel="Save changes"
         cancelHref={`/schemas/${schema.id}`}

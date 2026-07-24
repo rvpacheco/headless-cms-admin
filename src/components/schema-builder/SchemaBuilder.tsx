@@ -1,8 +1,14 @@
 'use client';
 
-import { startTransition, useActionState, useState } from 'react';
+import { startTransition, useActionState, useState, useTransition } from 'react';
 import Link from 'next/link';
-import type { SchemaFormState } from '@/lib/actions/schemas';
+import type { SchemaFormState, SaveSchemaPayload } from '@/lib/actions/schemas';
+import type {
+  AnalyzeResult,
+  ApplyPayload,
+  ApplyState,
+} from '@/lib/actions/evolution';
+import type { EvolutionPlan } from '@/lib/evolution/analyze';
 import {
   validateSchemaDraft,
   type DraftField,
@@ -11,13 +17,14 @@ import {
 } from '@/lib/domain/schema-validation';
 import { useSchemaFreshness } from '@/components/realtime/useSchemaFreshness';
 import { StaleSchemaBanner } from '@/components/realtime/StaleSchemaBanner';
+import { ReviewChangesModal } from './ReviewChangesModal';
 import { FieldRow, type SchemaOption } from './FieldRow';
 
 interface SchemaBuilderProps {
   /** Bound Server Action: create (schemaId=null) or update (schemaId set). */
   action: (
     prev: SchemaFormState,
-    draft: DraftSchema,
+    payload: SaveSchemaPayload,
   ) => Promise<SchemaFormState>;
   initialName?: string;
   initialFields?: DraftField[];
@@ -31,6 +38,9 @@ interface SchemaBuilderProps {
   /** Edit mode only: the schema being edited, for the stale-schema banner. */
   schemaId?: string;
   version?: number;
+  /** Edit mode only: analyze impact on existing entries before applying. */
+  analyzeAction?: (draft: DraftSchema) => Promise<AnalyzeResult>;
+  applyAction?: (prev: ApplyState, payload: ApplyPayload) => Promise<ApplyState>;
 }
 
 const EMPTY_ERRORS: SchemaErrors = { fields: {} };
@@ -59,6 +69,8 @@ export function SchemaBuilder({
   cancelHref,
   schemaId,
   version = 0,
+  analyzeAction,
+  applyAction,
 }: SchemaBuilderProps) {
   const [state, dispatch, isPending] = useActionState(action, null);
   const [name, setName] = useState(initialName);
@@ -68,6 +80,9 @@ export function SchemaBuilder({
   // Snapshot the loaded version so the stale banner can compare against it.
   // Empty schemaId (create mode) never matches an event, so this stays inert.
   const [loadedVersion, setLoadedVersion] = useState(version);
+  // Evolution: the review plan (opens the modal) and the analyze pending flag.
+  const [plan, setPlan] = useState<EvolutionPlan | null>(null);
+  const [isAnalyzing, startAnalyzeTransition] = useTransition();
 
   const freshness = useSchemaFreshness(schemaId ?? '', loadedVersion, version);
 
@@ -104,6 +119,18 @@ export function SchemaBuilder({
     setFields((current) => current.filter((field) => field.rowId !== rowId));
   }
 
+  function saveDirectly(draft: DraftSchema) {
+    // `useActionState`'s dispatch is an async action: it must run inside a
+    // transition, otherwise `isPending` won't update. We can't use the form's
+    // `action` prop here because that hands us FormData, and our payload is a
+    // nested field array — so we wrap the dispatch in `startTransition`, which
+    // still drives the hook's `isPending`. Send the mount-time loaded version so
+    // the server can reject a concurrent overwrite (edit mode only).
+    startTransition(() =>
+      dispatch({ draft, loadedVersion: schemaId ? loadedVersion : null }),
+    );
+  }
+
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     const draft: DraftSchema = { name, fields };
@@ -118,16 +145,55 @@ export function SchemaBuilder({
       return;
     }
     setClientErrors(null);
-    // `useActionState`'s dispatch is an async action: it must run inside a
-    // transition, otherwise `isPending` won't update. We can't use the form's
-    // `action` prop here because that hands us FormData, and our payload is a
-    // nested field array — so we wrap the dispatch in `startTransition`, which
-    // still drives the hook's `isPending`.
-    startTransition(() => dispatch(draft));
+
+    // Create mode (no analyzeAction) saves straight through. In edit mode, first
+    // analyze the impact on existing entries: if the change touches data, open
+    // the Review step; otherwise there's nothing to migrate, so save directly.
+    if (!analyzeAction) {
+      saveDirectly(draft);
+      return;
+    }
+    startAnalyzeTransition(async () => {
+      let analysis: AnalyzeResult;
+      try {
+        analysis = await analyzeAction(draft);
+      } catch {
+        setClientErrors({
+          fields: {},
+          form: 'Could not check the impact of this change. Please try again.',
+        });
+        return;
+      }
+      if (!analysis.ok) {
+        setClientErrors(analysis.errors);
+        return;
+      }
+      if (
+        analysis.plan.entryCount > 0 &&
+        analysis.plan.diff.hasStructuralChange
+      ) {
+        setPlan(analysis.plan);
+      } else {
+        saveDirectly(draft);
+      }
+    });
+  }
+
+  function reanalyze() {
+    if (!analyzeAction) return;
+    startAnalyzeTransition(async () => {
+      try {
+        const analysis = await analyzeAction({ name, fields });
+        if (analysis.ok) setPlan(analysis.plan);
+      } catch {
+        // Leave the current plan in place; the modal stays open to retry.
+      }
+    });
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-8">
+    <>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-8">
       {schemaId && (freshness.stale || freshness.deleted) && (
         <StaleSchemaBanner
           deleted={freshness.deleted}
@@ -136,6 +202,12 @@ export function SchemaBuilder({
           onReload={reloadFromLatest}
           backHref={cancelHref}
         />
+      )}
+
+      {errors.form && (
+        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/40">
+          {errors.form}
+        </p>
       )}
 
       {/* Schema name */}
@@ -204,10 +276,10 @@ export function SchemaBuilder({
       <div className="flex items-center gap-3 border-t border-zinc-200 pt-6 dark:border-zinc-800">
         <button
           type="submit"
-          disabled={isPending}
+          disabled={isPending || isAnalyzing}
           className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
         >
-          {isPending ? 'Saving…' : submitLabel}
+          {isAnalyzing ? 'Checking impact…' : isPending ? 'Saving…' : submitLabel}
         </button>
         <Link
           href={cancelHref}
@@ -216,6 +288,18 @@ export function SchemaBuilder({
           Cancel
         </Link>
       </div>
-    </form>
+      </form>
+
+      {plan && applyAction && (
+        <ReviewChangesModal
+          plan={plan}
+          draft={{ name, fields }}
+          applyAction={applyAction}
+          onCancel={() => setPlan(null)}
+          onReanalyze={reanalyze}
+          reanalyzing={isAnalyzing}
+        />
+      )}
+    </>
   );
 }

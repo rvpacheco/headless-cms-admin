@@ -23,6 +23,12 @@ import { publish } from '@/lib/realtime/bus';
 /** State returned to the entry form. `null` means "no attempt yet". */
 export type EntryFormState = { errors: EntryErrors } | null;
 
+export interface SaveEntryPayload {
+  data: RawEntryData;
+  /** The entry's `updatedAt` when the form loaded — an optimistic-lock token. */
+  expectedUpdatedAt: string | null;
+}
+
 /** Build the set of valid target entry ids for each reference field. */
 function referenceContext(schemaId: string) {
   const schema = getSchema(schemaId);
@@ -50,8 +56,10 @@ export async function saveEntryAction(
   schemaId: string,
   entryId: string | null,
   _prev: EntryFormState,
-  raw: RawEntryData,
+  payload: SaveEntryPayload,
 ): Promise<EntryFormState> {
+  const { data: raw, expectedUpdatedAt } = payload;
+
   const schema = getSchema(schemaId);
   if (!schema) {
     return { errors: { _form: 'This schema no longer exists.' } };
@@ -69,9 +77,19 @@ export async function saveEntryAction(
     const updated = updateEntry(entryId, {
       schemaVersion: schema.version,
       data: result.data,
+      expectedUpdatedAt: expectedUpdatedAt ?? undefined,
     });
     if (!updated) {
-      return { errors: { _form: 'This entry no longer exists.' } };
+      // The update matched no row: either the entry is gone, or its updated_at
+      // moved (a concurrent edit) — distinguish so we never overwrite silently.
+      const stillExists = getEntry(entryId);
+      return {
+        errors: {
+          _form: stillExists
+            ? 'This entry was changed in another tab. Reload to see the latest before saving.'
+            : 'This entry no longer exists.',
+        },
+      };
     }
     savedId = updated.id;
   } else {

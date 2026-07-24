@@ -21,8 +21,19 @@ export default async function SchemaDetailPage({
 
   const entries = listEntries(schema.id);
   const referenceLabels = buildReferenceLabelMap(schema);
+  const allSchemas = listSchemas();
   // Map target ids to names for displaying reference fields in the summary.
-  const namesById = new Map(listSchemas().map((s) => [s.id, s.name]));
+  const namesById = new Map(allSchemas.map((s) => [s.id, s.name]));
+  // Other schemas whose reference fields point at this one — deleting breaks them.
+  const referencingSchemas = allSchemas
+    .filter(
+      (s) =>
+        s.id !== schema.id &&
+        s.fields.some(
+          (f) => f.type === 'reference' && f.targetSchemaId === schema.id,
+        ),
+    )
+    .map((s) => s.name);
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
@@ -47,6 +58,7 @@ export default async function SchemaDetailPage({
             action={deleteSchemaAction.bind(null, schema.id)}
             schemaName={schema.name}
             entryCount={entries.length}
+            referencingSchemas={referencingSchemas}
           />
         </div>
       </header>

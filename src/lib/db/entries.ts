@@ -71,10 +71,16 @@ export function createEntry(input: CreateEntryInput): Entry {
 /**
  * Update an entry's data. `schemaVersion` is re-stamped so it records the
  * version the entry was last written against.
+ *
+ * When `expectedUpdatedAt` is provided, the update is an optimistic lock: it
+ * only writes if the row's `updated_at` still matches, so a concurrent edit in
+ * another tab is detected (0 rows changed) instead of being silently clobbered.
+ * The migration path omits it, deliberately force-writing every entry.
  */
 export interface UpdateEntryInput {
   schemaVersion: number;
   data: EntryData;
+  expectedUpdatedAt?: string;
 }
 
 export function updateEntry(
@@ -82,21 +88,32 @@ export function updateEntry(
   input: UpdateEntryInput,
 ): Entry | null {
   const now = new Date().toISOString();
-  const row = db
-    .prepare(
-      `UPDATE entries
-         SET data = @data,
-             schema_version = @schemaVersion,
-             updated_at = @updatedAt
-       WHERE id = @id
-       RETURNING *`,
-    )
-    .get({
-      id,
-      data: JSON.stringify(input.data),
-      schemaVersion: input.schemaVersion,
-      updatedAt: now,
-    }) as EntryRow | undefined;
+  const base = {
+    id,
+    data: JSON.stringify(input.data),
+    schemaVersion: input.schemaVersion,
+    updatedAt: now,
+  };
+
+  const row = (
+    input.expectedUpdatedAt !== undefined
+      ? db
+          .prepare(
+            `UPDATE entries
+               SET data = @data, schema_version = @schemaVersion, updated_at = @updatedAt
+             WHERE id = @id AND updated_at = @expectedUpdatedAt
+             RETURNING *`,
+          )
+          .get({ ...base, expectedUpdatedAt: input.expectedUpdatedAt })
+      : db
+          .prepare(
+            `UPDATE entries
+               SET data = @data, schema_version = @schemaVersion, updated_at = @updatedAt
+             WHERE id = @id
+             RETURNING *`,
+          )
+          .get(base)
+  ) as EntryRow | undefined;
 
   return row ? rowToEntry(row) : null;
 }

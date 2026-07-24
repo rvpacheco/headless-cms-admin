@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import { unstable_rethrow } from 'next/navigation';
 
 interface DeleteEntryButtonProps {
   /** Bound Server Action that deletes this entry and refreshes the list. */
@@ -14,7 +15,20 @@ interface DeleteEntryButtonProps {
  */
 export function DeleteEntryButton({ action, entryLabel }: DeleteEntryButtonProps) {
   const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  function handleDelete() {
+    setError(null);
+    startTransition(async () => {
+      try {
+        await action();
+      } catch (e) {
+        unstable_rethrow(e);
+        setError('Could not delete.');
+      }
+    });
+  }
 
   if (!confirming) {
     return (
@@ -30,11 +44,15 @@ export function DeleteEntryButton({ action, entryLabel }: DeleteEntryButtonProps
 
   return (
     <div className="flex items-center justify-end gap-2 text-sm">
-      <span className="text-zinc-500 dark:text-zinc-400">Delete?</span>
+      {error ? (
+        <span className="text-red-600">{error}</span>
+      ) : (
+        <span className="text-zinc-500 dark:text-zinc-400">Delete?</span>
+      )}
       <button
         type="button"
         disabled={isPending}
-        onClick={() => startTransition(() => action())}
+        onClick={handleDelete}
         aria-label={`Confirm delete ${entryLabel}`}
         className="rounded-md bg-red-600 px-2.5 py-1 font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
       >

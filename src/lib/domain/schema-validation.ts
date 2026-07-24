@@ -50,6 +50,8 @@ export interface FieldErrors {
 export interface SchemaErrors {
   /** Error on the schema name. */
   name?: string;
+  /** A general, form-level error (e.g. a concurrency conflict from the server). */
+  form?: string;
   /** Per-row field errors, keyed by `DraftField.rowId`. */
   fields: Record<string, FieldErrors>;
 }
