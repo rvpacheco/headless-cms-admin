@@ -40,6 +40,18 @@ export function getSchema(id: string): Schema | null {
   return row ? rowToSchema(row) : null;
 }
 
+/**
+ * Look up a schema by name, case-insensitively. Safe because schema names are
+ * unique case-insensitively, so at most one row can match. Used by the read
+ * API to resolve `{type}` (e.g. "car", "Car", "CAR" all match the "Car" schema).
+ */
+export function getSchemaByName(name: string): Schema | null {
+  const row = db
+    .prepare('SELECT * FROM schemas WHERE name = ? COLLATE NOCASE')
+    .get(name) as SchemaRow | undefined;
+  return row ? rowToSchema(row) : null;
+}
+
 /** Data needed to create a schema. Server assigns id, version, timestamps. */
 export interface CreateSchemaInput {
   name: string;
